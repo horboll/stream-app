@@ -11,7 +11,7 @@ data:
   # --- Branding ---
   BRANDING_SITE_NAME: "Overlord Live"
   BRANDING_TAGLINE: "Livestreaming från Jitsi."
-  BRANDING_LOGO_URL: "/logo.svg"
+  # BRANDING_LOGO_URL: "/logo.svg"  # Serveras via 05-site-logo.yaml ConfigMap, default /logo.svg
 
   # --- Adresser ---
   PUBLIC_HOST: "live.overlord.se"

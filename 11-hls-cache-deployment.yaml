@@ -22,7 +22,7 @@ spec:
       automountServiceAccountToken: false
       containers:
       - name: nginx
-        image: nginx:1.27-alpine
+        image: image-registry.overlord.se/mirror/ubi9/nginx-126:latest
         imagePullPolicy: IfNotPresent
         ports:
         - name: http

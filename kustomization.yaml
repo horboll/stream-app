@@ -11,6 +11,7 @@ resources:
   - 03-mediamtx-deployment.yaml
   - 04-mediamtx-service.yaml
   - 05-site-config.yaml
+  - site-logo.yaml
   - 06-app-rbac.yaml
   - 07-app-deployment.yaml
   - 08-app-service.yaml
