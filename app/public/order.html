@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Best&auml;ll stream</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/branding.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="site-header">
+      <img id="site-logo" src="/logo.svg" alt="" class="site-logo">
+      <h1 id="site-title"></h1>
+    </div>
+    <p><a href="/">&larr; Tillbaka till startsidan</a></p>
+
+    <div id="efos-banner" class="card" hidden>
+      <p class="success">Inloggad med EFOS-kort som <strong id="efos-info"></strong></p>
+    </div>
+
+    <div class="card">
+      <h2>Ny stream</h2>
+      <form id="create-form">
+        <label for="stream-name">Streamnamn (sm&aring; bokst&auml;ver, siffror, bindestreck)</label>
+        <input type="text" id="stream-name" name="name" pattern="[a-z0-9-]+" required placeholder="t.ex. min-stream">
+
+        <div id="email-field">
+          <label for="stream-email">Din e-postadress (beh&ouml;vs f&ouml;r att hantera streamen)</label>
+          <input type="email" id="stream-email" required placeholder="namn@example.com">
+        </div>
+
+        <div id="name-field">
+          <label for="owner-name">Ditt namn (visas i Jitsi-m&ouml;tet)</label>
+          <input type="text" id="owner-name" required placeholder="F&ouml;rnamn Efternamn">
+        </div>
+
+        <label for="scheduled-start">Planerad starttid</label>
+        <input type="datetime-local" id="scheduled-start">
+        <p class="info">L&auml;mna tomt f&ouml;r att starta direkt. Streamen kan b&ouml;rja 1 timme f&ouml;re planerad tid.</p>
+
+        <button type="submit" style="margin-top:0.5rem;">Skapa</button>
+      </form>
+      <div id="create-result" class="result" hidden></div>
+    </div>
+
+  </div>
+
+  <script>
+    let efosEmail = null;
+    let efosName = null;
+
+    async function checkEfos() {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (data.email && data.isEfos) {
+          efosEmail = data.email;
+          efosName = data.name;
+          const infoText = data.name ? `${data.name} (${data.email})` : data.email;
+          document.getElementById('efos-banner').hidden = false;
+          document.getElementById('efos-info').textContent = infoText;
+          document.getElementById('email-field').hidden = true;
+          document.getElementById('stream-email').required = false;
+          if (data.name) {
+            document.getElementById('name-field').hidden = true;
+            document.getElementById('owner-name').required = false;
+          }
+        }
+      } catch (err) {
+        // No EFOS — show all fields (default)
+      }
+    }
+
+    applyBranding();
+    checkEfos();
+
+    const createForm = document.getElementById('create-form');
+    const createResult = document.getElementById('create-result');
+
+    createForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('stream-name').value.trim();
+      if (!name) return;
+
+      const email = efosEmail || document.getElementById('stream-email').value.trim();
+      if (!email) {
+        createResult.innerHTML = '<p class="error">E-postadress kr&auml;vs.</p>';
+        createResult.hidden = false;
+        return;
+      }
+
+      const ownerName = efosName || document.getElementById('owner-name').value.trim();
+      if (!ownerName) {
+        createResult.innerHTML = '<p class="error">Namn kr&auml;vs.</p>';
+        createResult.hidden = false;
+        return;
+      }
+
+      const scheduledStartInput = document.getElementById('scheduled-start').value;
+      const scheduledStart = scheduledStartInput ? new Date(scheduledStartInput).toISOString() : null;
+
+      createResult.hidden = true;
+      try {
+        const res = await fetch('/api/streams', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, email, ownerName, scheduledStart }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          createResult.innerHTML = `<p class="error">${data.error}</p>`;
+        } else {
+          const startInfo = data.scheduledStart
+            ? `<tr><td>Planerad start:</td><td>${new Date(data.scheduledStart).toLocaleString('sv-SE')}</td></tr>`
+            : '';
+          createResult.innerHTML = `
+            <p class="success">Stream skapad!</p>
+            <table>
+              <tr><td>Publik l&auml;nk:</td><td><a href="${data.viewUrl}" target="_blank">${data.viewUrl}</a></td></tr>
+              <tr><td>RTMP URL (f&ouml;r Jitsi):</td><td><code>${data.rtmpUrl}</code></td></tr>
+              <tr><td>Stream-nyckel:</td><td><code>${data.key}</code></td></tr>
+              ${startInfo}
+            </table>
+            <p style="margin-top:1rem;">
+              <a href="/start/${data.name}" style="display:inline-block;padding:0.6rem 1.2rem;background:#4a9eff;color:#fff;border-radius:4px;font-weight:500;">Starta m&ouml;te med live-streaming</a>
+            </p>
+            <p class="info">Eller klistra in RTMP URL manuellt i Jitsis "Start live streaming"-dialog.</p>
+            ${!efosEmail ? '<p class="info">Spara din stream-nyckel! Du beh&ouml;ver den tillsammans med din e-post f&ouml;r att komma &aring;t "Mina streams".</p>' : ''}
+          `;
+          document.getElementById('stream-name').value = '';
+          document.getElementById('scheduled-start').value = '';
+          if (!efosEmail) document.getElementById('stream-email').value = '';
+          if (!efosName) document.getElementById('owner-name').value = '';
+        }
+      } catch (err) {
+        createResult.innerHTML = `<p class="error">Fel: ${err.message}</p>`;
+      }
+      createResult.hidden = false;
+    });
+  </script>
+</body>
+</html>

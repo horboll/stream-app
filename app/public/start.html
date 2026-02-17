@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Starta m&ouml;te</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/branding.js"></script>
+  <style>
+    #jitsi-container {
+      width: 100%;
+      height: 70vh;
+      border-radius: 8px;
+      overflow: hidden;
+      margin: 1rem 0;
+    }
+    #status-bar {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      padding: 0.75rem 1rem;
+      background: #1a1a1a;
+      border: 1px solid #333;
+      border-radius: 6px;
+      margin-bottom: 1rem;
+    }
+    #stream-status {
+      font-weight: 500;
+    }
+  </style>
+</head>
+<body>
+  <div class="container" style="max-width:1000px;">
+    <h1 id="page-title">Laddar...</h1>
+    <p><a href="/">&larr; Tillbaka till startsidan</a></p>
+
+    <div id="error-section" class="card" hidden>
+      <p class="error" id="error-message"></p>
+    </div>
+
+    <div id="meeting-section" hidden>
+      <div id="status-bar">
+        <span id="stream-status">V&auml;ntar p&aring; att m&ouml;tet startar...</span>
+        <span id="viewer-count" hidden>| <span id="viewer-count-value">0</span> tittare</span>
+        <span id="stream-link" hidden>
+          | Live-sida: <a id="view-link" href="#" target="_blank">-</a>
+        </span>
+      </div>
+      <div id="jitsi-container"></div>
+    </div>
+  </div>
+
+  <script>
+    const streamName = window.location.pathname.replace(/^\/start\//, '').replace(/\/$/, '');
+    let api = null;
+    let streamData = null;
+    let streamingStarted = false;
+
+    async function init() {
+      // Fetch stream info
+      try {
+        const res = await fetch(`/api/streams/${streamName}`);
+        if (!res.ok) {
+          showError('Streamen hittades inte.');
+          return;
+        }
+        streamData = await res.json();
+      } catch (err) {
+        showError('Kunde inte ladda stream-info: ' + err.message);
+        return;
+      }
+
+      if (streamData.status === 'completed') {
+        showError('Streamen har redan avslutats.');
+        return;
+      }
+
+      document.getElementById('page-title').textContent = streamData.name;
+      document.title = `${streamData.name} - ${BRANDING.siteName}`;
+      document.getElementById('view-link').href = streamData.viewUrl;
+      document.getElementById('view-link').textContent = streamData.viewUrl;
+
+      // Get user display name
+      let displayName = streamData.ownerName || 'Deltagare';
+      try {
+        const authRes = await fetch('/api/auth/me');
+        const authData = await authRes.json();
+        if (authData.name) displayName = authData.name;
+      } catch (err) {}
+
+      document.getElementById('meeting-section').hidden = false;
+
+      // Load Jitsi IFrame API
+      const script = document.createElement('script');
+      const jitsiDomain = streamData.jitsiDomain || BRANDING.jitsiDomain;
+      script.src = `https://${jitsiDomain}/external_api.js`;
+      script.onload = () => startMeeting(displayName, jitsiDomain);
+      script.onerror = () => showError(`Kunde inte ladda Jitsi. Kontrollera att ${jitsiDomain} &auml;r tillg&auml;ngligt.`);
+      document.head.appendChild(script);
+    }
+
+    function startMeeting(displayName, jitsiDomain) {
+      api = new JitsiMeetExternalAPI(jitsiDomain, {
+        roomName: streamName,
+        parentNode: document.getElementById('jitsi-container'),
+        userInfo: {
+          displayName: displayName,
+        },
+        configOverwrite: {
+          startWithAudioMuted: false,
+          startWithVideoMuted: false,
+          prejoinPageEnabled: false,
+        },
+        interfaceConfigOverwrite: {
+          SHOW_JITSI_WATERMARK: false,
+        },
+      });
+
+      api.addEventListener('videoConferenceJoined', () => {
+        updateStatus('I m&ouml;tet. Startar live-streaming...');
+        startStreaming();
+      });
+
+      api.addEventListener('videoConferenceLeft', () => {
+        updateStatus('M&ouml;tet avslutat.');
+      });
+
+      api.addEventListener('recordingStatusChanged', (event) => {
+        if (event.on && event.mode === 'stream') {
+          streamingStarted = true;
+          updateStatus('Live-streaming aktiv!', true);
+          document.getElementById('stream-link').hidden = false;
+          startViewerPoll();
+        } else if (!event.on && streamingStarted) {
+          updateStatus('Live-streaming stoppad.');
+        }
+      });
+    }
+
+    function startStreaming() {
+      if (!api || !streamData) return;
+
+      // Give Jitsi a moment to fully initialize after join
+      setTimeout(() => {
+        api.executeCommand('startRecording', {
+          mode: 'stream',
+          rtmpStreamKey: streamData.rtmpUrl,
+        });
+      }, 2000);
+    }
+
+    function updateStatus(text, isLive) {
+      const el = document.getElementById('stream-status');
+      el.innerHTML = text;
+      if (isLive) {
+        el.style.color = '#4caf50';
+      } else {
+        el.style.color = '';
+      }
+    }
+
+    let viewerPollInterval = null;
+    async function pollViewerCount() {
+      try {
+        const res = await fetch(`/api/streams/${streamName}`);
+        if (!res.ok) return;
+        const data = await res.json();
+        const count = data.viewers || 0;
+        document.getElementById('viewer-count-value').textContent = count;
+        document.getElementById('viewer-count').hidden = false;
+      } catch (err) {}
+    }
+
+    function startViewerPoll() {
+      if (viewerPollInterval) return;
+      pollViewerCount();
+      viewerPollInterval = setInterval(pollViewerCount, 10000);
+    }
+
+    function showError(msg) {
+      document.getElementById('page-title').textContent = 'Fel';
+      document.getElementById('error-section').hidden = false;
+      document.getElementById('error-message').textContent = msg;
+    }
+
+    applyBranding();
+    init();
+  </script>
+</body>
+</html>

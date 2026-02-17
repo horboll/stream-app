@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title></title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/branding.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/hls.js@1"></script>
+</head>
+<body>
+  <div class="container viewer">
+    <h1 id="stream-title">Laddar...</h1>
+    <div id="player-container">
+      <video id="video" controls autoplay muted></video>
+      <div id="offline-message" hidden>
+        <p>Streamen &auml;r inte aktiv just nu.</p>
+        <p>Sidan uppdateras automatiskt n&auml;r streamen startar.</p>
+      </div>
+    </div>
+    <p><a href="/">&larr; Tillbaka</a></p>
+  </div>
+
+  <script>
+    const streamName = window.location.pathname.replace(/^\/live\//, '').replace(/\/$/, '');
+    const video = document.getElementById('video');
+    const offlineMsg = document.getElementById('offline-message');
+    const title = document.getElementById('stream-title');
+    let hls = null;
+    let currentKey = null;
+    const viewerId = crypto.randomUUID();
+    let heartbeatInterval = null;
+
+    async function loadStream() {
+      try {
+        const res = await fetch(`/api/streams/${streamName}`);
+        if (!res.ok) {
+          title.textContent = 'Stream hittades inte';
+          video.hidden = true;
+          offlineMsg.hidden = false;
+          offlineMsg.querySelector('p').textContent = 'Denna stream finns inte.';
+          return;
+        }
+
+        const data = await res.json();
+        title.textContent = data.name;
+        document.title = `${data.name} - ${BRANDING.siteName}`;
+
+        if (data.status === 'live') {
+          offlineMsg.hidden = true;
+          video.hidden = false;
+          if (currentKey !== data.key) {
+            startPlayer(data.key);
+          }
+          startHeartbeat();
+        } else {
+          stopHeartbeat();
+        }
+
+        if (data.status === 'completed') {
+          video.hidden = true;
+          offlineMsg.hidden = false;
+          offlineMsg.innerHTML = '<p>Streamen har avslutats.</p><p><a href="/">Tillbaka till startsidan</a></p>';
+        } else if (data.status !== 'live') {
+          video.hidden = true;
+          offlineMsg.hidden = false;
+          if (data.scheduledStart) {
+            const startTime = new Date(data.scheduledStart).toLocaleString('sv-SE');
+            offlineMsg.innerHTML = `<p>Streamen &auml;r planerad att starta ${startTime}.</p><p>Sidan uppdateras automatiskt n&auml;r streamen startar.</p>`;
+          } else {
+            offlineMsg.innerHTML = '<p>Streamen &auml;r inte aktiv just nu.</p><p>Sidan uppdateras automatiskt n&auml;r streamen startar.</p>';
+          }
+        }
+      } catch (err) {
+        title.textContent = 'Fel';
+      }
+    }
+
+    function startPlayer(key) {
+      const hlsUrl = `/hls/${key}/index.m3u8`;
+      if (hls) {
+        hls.destroy();
+      }
+      currentKey = key;
+
+      if (Hls.isSupported()) {
+        const hc = window.HLS_CONFIG || {};
+        hls = new Hls({
+          lowLatencyMode: false,
+          liveSyncDuration: hc.liveSyncDuration || 3,
+          liveMaxLatencyDuration: hc.liveMaxLatencyDuration || 8,
+          maxBufferLength: hc.maxBufferLength || 6,
+          maxMaxBufferLength: hc.maxMaxBufferLength || 15,
+        });
+        hls.loadSource(hlsUrl);
+        hls.attachMedia(video);
+        hls.on(Hls.Events.MANIFEST_PARSED, () => {
+          video.play().catch(() => {});
+        });
+        hls.on(Hls.Events.ERROR, (event, data) => {
+          if (data.fatal) {
+            if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+              // Network error — try to recover
+              hls.startLoad();
+            } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+              // Media error — try to recover
+              hls.recoverMediaError();
+            } else {
+              // Unrecoverable — reset player so next poll recreates it
+              hls.destroy();
+              hls = null;
+              currentKey = null;
+              video.hidden = true;
+              offlineMsg.hidden = false;
+            }
+          }
+        });
+      } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        // Safari native HLS
+        video.src = hlsUrl;
+        video.addEventListener('loadedmetadata', () => {
+          video.play().catch(() => {});
+        });
+      }
+    }
+
+    function sendHeartbeat() {
+      fetch(`/api/streams/${streamName}/viewer-heartbeat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewerId }),
+      }).catch(() => {});
+    }
+
+    function startHeartbeat() {
+      if (heartbeatInterval) return;
+      sendHeartbeat();
+      heartbeatInterval = setInterval(sendHeartbeat, 30000);
+    }
+
+    function stopHeartbeat() {
+      if (heartbeatInterval) {
+        clearInterval(heartbeatInterval);
+        heartbeatInterval = null;
+      }
+    }
+
+    applyBranding();
+    loadStream();
+    setInterval(loadStream, 10000);
+  </script>
+</body>
+</html>

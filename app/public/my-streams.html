@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Mina streams</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/branding.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Mina streams</h1>
+    <p><a href="/">&larr; Tillbaka till startsidan</a></p>
+
+    <div id="efos-banner" class="card" hidden>
+      <p class="success">Inloggad med EFOS-kort som <strong id="efos-email"></strong></p>
+    </div>
+
+    <!-- Login form (shown when no EFOS) -->
+    <div id="login-section" class="card" hidden>
+      <h2>Logga in</h2>
+      <p class="info">Ange din e-postadress och en av dina stream-nycklar f&ouml;r att se dina streams.</p>
+      <form id="login-form">
+        <label for="login-email">E-postadress</label>
+        <input type="email" id="login-email" required placeholder="namn@example.com">
+        <label for="login-key">Stream-nyckel</label>
+        <input type="text" id="login-key" required placeholder="Din stream-nyckel (32 tecken)">
+        <button type="submit">Logga in</button>
+      </form>
+      <div id="login-error" hidden></div>
+    </div>
+
+    <!-- Streams list (shown after auth) -->
+    <div id="streams-section" hidden>
+      <div class="card">
+        <h2>Dina streams</h2>
+        <div id="streams-list">Laddar...</div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let loggedInEmail = null;
+
+    async function init() {
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (data.email && data.isEfos) {
+          loggedInEmail = data.email;
+          document.getElementById('efos-banner').hidden = false;
+          document.getElementById('efos-email').textContent = data.email;
+          showStreams();
+          return;
+        }
+      } catch (err) {}
+
+      // Check if we have a valid cookie session
+      try {
+        const res = await fetch('/api/my-streams');
+        if (res.ok) {
+          const streams = await res.json();
+          // Cookie is valid
+          showStreams();
+          renderStreams(streams);
+          return;
+        }
+      } catch (err) {}
+
+      // No auth — show login form
+      document.getElementById('login-section').hidden = false;
+    }
+
+    function showStreams() {
+      document.getElementById('login-section').hidden = true;
+      document.getElementById('streams-section').hidden = false;
+      if (!loggedInEmail) return; // streams already loaded from cookie check
+      loadStreams();
+    }
+
+    async function loadStreams() {
+      const streamsList = document.getElementById('streams-list');
+      try {
+        const res = await fetch('/api/my-streams');
+        if (!res.ok) {
+          if (res.status === 401) {
+            // Session expired
+            document.getElementById('streams-section').hidden = true;
+            document.getElementById('login-section').hidden = false;
+            return;
+          }
+          throw new Error('Kunde inte ladda streams');
+        }
+        const data = await res.json();
+        renderStreams(data);
+      } catch (err) {
+        streamsList.innerHTML = `<p class="error">${err.message}</p>`;
+      }
+    }
+
+    function renderStreams(data) {
+      const streamsList = document.getElementById('streams-list');
+      if (data.length === 0) {
+        streamsList.innerHTML = '<p class="info">Du har inga streams &auml;nnu. <a href="/order">Best&auml;ll en stream</a></p>';
+        return;
+      }
+      streamsList.innerHTML = '<table>' +
+        '<tr><th>Namn</th><th>Status</th><th>Planerad start</th><th></th></tr>' +
+        data.map(s => `
+          <tr>
+            <td><a href="/live/${s.name}" target="_blank">${s.name}</a></td>
+            <td><span class="status status-${s.status}">${s.status}</span></td>
+            <td>${s.scheduled_start ? new Date(s.scheduled_start).toLocaleString('sv-SE') : '-'}</td>
+            <td>
+              ${s.status === 'created' ? `<a href="/start/${s.name}" style="margin-right:0.5rem;">Starta</a>` : ''}
+              ${s.status !== 'completed' ? `<button onclick="deleteStream('${s.name}')">Ta bort</button>` : ''}
+            </td>
+          </tr>
+        `).join('') +
+        '</table>';
+    }
+
+    async function deleteStream(name) {
+      if (!confirm(`Ta bort stream "${name}"?`)) return;
+      try {
+        const res = await fetch(`/api/streams/${name}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json();
+          alert(data.error || 'Kunde inte ta bort stream');
+          return;
+        }
+        loadStreams();
+      } catch (err) {
+        alert('Fel: ' + err.message);
+      }
+    }
+
+    // Login form
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('login-email').value.trim();
+      const key = document.getElementById('login-key').value.trim();
+      const loginError = document.getElementById('login-error');
+      loginError.hidden = true;
+
+      try {
+        const res = await fetch('/api/my-streams/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, key }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          loginError.innerHTML = `<p class="error">${data.error}</p>`;
+          loginError.hidden = false;
+          return;
+        }
+        loggedInEmail = data.email;
+        showStreams();
+      } catch (err) {
+        loginError.innerHTML = `<p class="error">Fel: ${err.message}</p>`;
+        loginError.hidden = false;
+      }
+    });
+
+    applyBranding();
+    init();
+    // Refresh streams every 10s if logged in
+    setInterval(() => {
+      if (!document.getElementById('streams-section').hidden) {
+        loadStreams();
+      }
+    }, 10000);
+  </script>
+</body>
+</html>

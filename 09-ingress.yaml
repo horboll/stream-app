@@ -1,0 +1,27 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jitsi-live
+  namespace: jitsi-overlord
+  labels:
+    app.kubernetes.io/name: jitsi-live
+    app.kubernetes.io/part-of: jitsi-live
+  annotations:
+    cert-manager.io/cluster-issuer: acme-web-challenge
+spec:
+  ingressClassName: openshift-default
+  rules:
+  - host: live.overlord.se
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: jitsi-live-app
+            port:
+              number: 3000
+  tls:
+  - hosts:
+    - live.overlord.se
+    secretName: live-tls

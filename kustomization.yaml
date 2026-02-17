@@ -1,0 +1,20 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: jitsi-overlord
+
+resources:
+  - 00-db-secret.yaml
+  - 00-admin-secret.yaml
+  - 00-registry-secret.yaml
+  - 01-pgsql-cluster.yaml
+  - 02-mediamtx-config.yaml
+  - 03-mediamtx-deployment.yaml
+  - 04-mediamtx-service.yaml
+  - 05-site-config.yaml
+  - 06-app-rbac.yaml
+  - 07-app-deployment.yaml
+  - 08-app-service.yaml
+  - 09-ingress.yaml
+  - 10-hls-cache-config.yaml
+  - 11-hls-cache-deployment.yaml
+  - 12-hls-cache-service.yaml

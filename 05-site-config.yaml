@@ -1,0 +1,24 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jitsi-live-site-config
+  namespace: jitsi-overlord
+  labels:
+    app.kubernetes.io/name: jitsi-live-app
+    app.kubernetes.io/component: site-config
+    app.kubernetes.io/part-of: jitsi-live
+data:
+  # --- Branding ---
+  BRANDING_SITE_NAME: "Overlord Live"
+  BRANDING_TAGLINE: "Livestreaming från Jitsi."
+  BRANDING_LOGO_URL: "/logo.svg"
+
+  # --- Adresser ---
+  PUBLIC_HOST: "live.overlord.se"
+  JITSI_DOMAIN: "prat.overlord.se"
+
+  # --- HLS-spelare ---
+  HLS_LIVE_SYNC_DURATION: "3"
+  HLS_MAX_LATENCY_DURATION: "8"
+  HLS_MAX_BUFFER_LENGTH: "6"
+  HLS_MAX_MAX_BUFFER_LENGTH: "15"

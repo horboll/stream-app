@@ -1,0 +1,38 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jitsi-live-app
+  namespace: jitsi-overlord
+  labels:
+    app.kubernetes.io/name: jitsi-live-app
+    app.kubernetes.io/part-of: jitsi-live
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jitsi-live-jibri-scaler
+  namespace: jitsi-overlord
+  labels:
+    app.kubernetes.io/part-of: jitsi-live
+rules:
+- apiGroups: ["apps"]
+  resources: ["deployments/scale"]
+  verbs: ["get", "patch"]
+  resourceNames:
+  - jitsi-shard-0-jibri
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jitsi-live-jibri-scaler
+  namespace: jitsi-overlord
+  labels:
+    app.kubernetes.io/part-of: jitsi-live
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jitsi-live-jibri-scaler
+subjects:
+- kind: ServiceAccount
+  name: jitsi-live-app
+  namespace: jitsi-overlord

@@ -1,0 +1,97 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jitsi-live-hls-cache-config
+  namespace: jitsi-overlord
+data:
+  nginx.conf: |
+    worker_processes auto;
+    error_log /var/log/nginx/error.log warn;
+    pid /tmp/nginx.pid;
+
+    events {
+      worker_connections 4096;
+    }
+
+    http {
+      include /etc/nginx/mime.types;
+      default_type application/octet-stream;
+
+      # Temp paths writable by non-root
+      client_body_temp_path /tmp/client_temp;
+      proxy_temp_path /tmp/proxy_temp;
+      fastcgi_temp_path /tmp/fastcgi_temp;
+      uwsgi_temp_path /tmp/uwsgi_temp;
+      scgi_temp_path /tmp/scgi_temp;
+
+      # HLS cache zone: 256MB RAM for keys, 1GB disk, inactive after 10min
+      proxy_cache_path /tmp/hls-cache levels=1:2 keys_zone=hls:256m max_size=1g inactive=10m;
+
+      log_format main '$remote_addr - [$time_local] "$request" $status $body_bytes_sent '
+                      'cache=$upstream_cache_status rt=$request_time';
+      access_log /var/log/nginx/access.log main;
+
+      sendfile on;
+      tcp_nopush on;
+      keepalive_timeout 65;
+
+      upstream mediamtx {
+        server jitsi-live-mediamtx:8888;
+        keepalive 32;
+      }
+
+      server {
+        listen 8080;
+
+        # Health check
+        location /health {
+          return 200 'ok';
+          add_header Content-Type text/plain;
+        }
+
+        # HLS playlists (.m3u8) — cache briefly (1 second)
+        # These update every segment duration, so short TTL is critical
+        location ~* \.m3u8$ {
+          proxy_pass http://mediamtx;
+          proxy_cache hls;
+          proxy_cache_valid 200 1s;
+          proxy_cache_key $uri;
+          proxy_cache_lock on;
+          proxy_cache_use_stale updating error timeout;
+
+          # CORS headers for hls.js
+          add_header Access-Control-Allow-Origin *;
+          add_header X-Cache-Status $upstream_cache_status;
+        }
+
+        # HLS segments (.ts) — cache aggressively (they never change)
+        location ~* \.ts$ {
+          proxy_pass http://mediamtx;
+          proxy_cache hls;
+          proxy_cache_valid 200 5m;
+          proxy_cache_key $uri;
+          proxy_cache_lock on;
+
+          add_header Access-Control-Allow-Origin *;
+          add_header X-Cache-Status $upstream_cache_status;
+        }
+
+        # HLS init segments (.mp4) — cache aggressively
+        location ~* \.mp4$ {
+          proxy_pass http://mediamtx;
+          proxy_cache hls;
+          proxy_cache_valid 200 5m;
+          proxy_cache_key $uri;
+          proxy_cache_lock on;
+
+          add_header Access-Control-Allow-Origin *;
+          add_header X-Cache-Status $upstream_cache_status;
+        }
+
+        # Everything else — pass through
+        location / {
+          proxy_pass http://mediamtx;
+          add_header Access-Control-Allow-Origin *;
+        }
+      }
+    }

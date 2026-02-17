@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Administration</title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/branding.js"></script>
+</head>
+<body>
+  <div class="container">
+    <h1>Administration</h1>
+    <p><a href="/">&larr; Tillbaka till startsidan</a></p>
+
+    <!-- Login section (shown when not admin) -->
+    <div id="login-section" class="card" hidden>
+      <h2>Admin-inloggning</h2>
+      <form id="login-form">
+        <label for="admin-password">L&ouml;senord</label>
+        <input type="password" id="admin-password" required placeholder="Admin-l&ouml;senord">
+        <button type="submit">Logga in</button>
+      </form>
+      <div id="login-error" hidden></div>
+    </div>
+
+    <!-- Change password section (shown on first login) -->
+    <div id="change-password-section" class="card" hidden>
+      <h2>Byt l&ouml;senord</h2>
+      <p class="info">Du m&aring;ste byta l&ouml;senord vid f&ouml;rsta inloggningen.</p>
+      <form id="change-password-form">
+        <label for="new-password">Nytt l&ouml;senord (minst 8 tecken)</label>
+        <input type="password" id="new-password" required minlength="8" placeholder="Nytt l&ouml;senord">
+        <label for="confirm-password">Bekr&auml;fta l&ouml;senord</label>
+        <input type="password" id="confirm-password" required minlength="8" placeholder="Upprepa l&ouml;senord">
+        <button type="submit">Spara nytt l&ouml;senord</button>
+      </form>
+      <div id="change-password-error" hidden></div>
+    </div>
+
+    <!-- Access denied -->
+    <div id="denied-section" class="card" hidden>
+      <p class="error">&Aring;tkomst nekad. Du har inte admin-beh&ouml;righet.</p>
+    </div>
+
+    <!-- Admin panel (shown after auth) -->
+    <div id="admin-panel" hidden>
+      <div id="logout-bar" hidden style="text-align:right;margin-bottom:1rem;">
+        <button onclick="logout()">Logga ut</button>
+      </div>
+      <div class="card">
+        <h2>Alla streams</h2>
+        <div id="streams-list">Laddar...</div>
+      </div>
+
+      <div class="card">
+        <h2>Administrat&ouml;rer</h2>
+        <div id="admins-list">Laddar...</div>
+        <h3 style="margin-top:1rem;color:#ccc;font-size:1rem;">L&auml;gg till admin</h3>
+        <form id="add-admin-form" style="display:flex;gap:0.5rem;margin-top:0.5rem;">
+          <input type="email" id="admin-email" required placeholder="E-postadress" style="flex:1;">
+          <input type="text" id="admin-name" placeholder="Namn (valfritt)" style="flex:1;">
+          <button type="submit">L&auml;gg till</button>
+        </form>
+        <div id="admin-error" hidden></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let authMethod = null;
+
+    async function init() {
+      // Check if we have admin access (EFOS or cookie)
+      try {
+        const res = await fetch('/api/admin/check');
+        if (res.ok) {
+          const data = await res.json();
+          authMethod = data.authMethod;
+          showAdminPanel();
+          return;
+        }
+      } catch (err) {}
+
+      // Check if EFOS user but not admin
+      try {
+        const res = await fetch('/api/auth/me');
+        const data = await res.json();
+        if (data.email && data.isEfos && !data.isAdmin) {
+          document.getElementById('denied-section').hidden = false;
+          return;
+        }
+      } catch (err) {}
+
+      // No auth — show login form
+      document.getElementById('login-section').hidden = false;
+    }
+
+    function showAdminPanel() {
+      document.getElementById('login-section').hidden = true;
+      document.getElementById('denied-section').hidden = true;
+      document.getElementById('admin-panel').hidden = false;
+      if (authMethod === 'password') {
+        document.getElementById('logout-bar').hidden = false;
+      }
+      loadStreams();
+      loadAdmins();
+    }
+
+    async function logout() {
+      await fetch('/api/admin/logout', { method: 'POST' });
+      authMethod = null;
+      document.getElementById('admin-panel').hidden = true;
+      document.getElementById('logout-bar').hidden = true;
+      document.getElementById('login-section').hidden = false;
+    }
+
+    // --- Streams ---
+    async function loadStreams() {
+      const streamsList = document.getElementById('streams-list');
+      try {
+        const res = await fetch('/api/streams');
+        const data = await res.json();
+        if (data.length === 0) {
+          streamsList.innerHTML = '<p class="info">Inga streams.</p>';
+          return;
+        }
+        streamsList.innerHTML = '<table>' +
+          '<tr><th>Namn</th><th>Status</th><th>Tittare</th><th>&Auml;gare</th><th>Planerad start</th><th></th></tr>' +
+          data.map(s => `
+            <tr>
+              <td><a href="/live/${s.name}" target="_blank">${s.name}</a></td>
+              <td><span class="status status-${s.status}">${s.status}</span></td>
+              <td>${s.viewers > 0 ? `<span style="color:#4caf50">${s.viewers}</span>` : '-'}</td>
+              <td>${s.owner_name || s.owner_email || '<span style="color:#666">-</span>'}</td>
+              <td>${s.scheduled_start ? new Date(s.scheduled_start).toLocaleString('sv-SE') : '-'}</td>
+              <td><button onclick="deleteStream('${s.name}')">Ta bort</button></td>
+            </tr>
+          `).join('') +
+          '</table>';
+      } catch (err) {
+        streamsList.innerHTML = `<p class="error">Kunde inte ladda streams: ${err.message}</p>`;
+      }
+    }
+
+    async function deleteStream(name) {
+      if (!confirm(`Ta bort stream "${name}"?`)) return;
+      try {
+        const res = await fetch(`/api/streams/${name}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json();
+          alert(data.error || 'Kunde inte ta bort stream');
+          return;
+        }
+        loadStreams();
+      } catch (err) {
+        alert('Fel: ' + err.message);
+      }
+    }
+
+    // --- Admins ---
+    async function loadAdmins() {
+      const adminsList = document.getElementById('admins-list');
+      try {
+        const res = await fetch('/api/admins');
+        if (!res.ok) throw new Error('Kunde inte ladda admins');
+        const data = await res.json();
+        if (data.length === 0) {
+          adminsList.innerHTML = '<p class="info">Inga administrat&ouml;rer tillagda &auml;nnu.</p>';
+          return;
+        }
+        adminsList.innerHTML = '<table>' +
+          '<tr><th>E-post</th><th>Namn</th><th>Tillagd</th><th></th></tr>' +
+          data.map(a => `
+            <tr>
+              <td>${a.email}</td>
+              <td>${a.name || '-'}</td>
+              <td>${new Date(a.created_at).toLocaleString('sv-SE')}</td>
+              <td><button onclick="removeAdmin('${a.email}')">Ta bort</button></td>
+            </tr>
+          `).join('') +
+          '</table>';
+      } catch (err) {
+        adminsList.innerHTML = `<p class="error">${err.message}</p>`;
+      }
+    }
+
+    async function removeAdmin(email) {
+      if (!confirm(`Ta bort admin "${email}"?`)) return;
+      try {
+        const res = await fetch(`/api/admins/${encodeURIComponent(email)}`, { method: 'DELETE' });
+        if (!res.ok) {
+          const data = await res.json();
+          alert(data.error || 'Kunde inte ta bort admin');
+          return;
+        }
+        loadAdmins();
+      } catch (err) {
+        alert('Fel: ' + err.message);
+      }
+    }
+
+    // Add admin form
+    document.getElementById('add-admin-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('admin-email').value.trim();
+      const name = document.getElementById('admin-name').value.trim();
+      const adminError = document.getElementById('admin-error');
+      adminError.hidden = true;
+
+      try {
+        const res = await fetch('/api/admins', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, name }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          adminError.innerHTML = `<p class="error">${data.error}</p>`;
+          adminError.hidden = false;
+          return;
+        }
+        document.getElementById('admin-email').value = '';
+        document.getElementById('admin-name').value = '';
+        loadAdmins();
+      } catch (err) {
+        adminError.innerHTML = `<p class="error">Fel: ${err.message}</p>`;
+        adminError.hidden = false;
+      }
+    });
+
+    // Login form
+    document.getElementById('login-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const password = document.getElementById('admin-password').value;
+      const loginError = document.getElementById('login-error');
+      loginError.hidden = true;
+
+      try {
+        const res = await fetch('/api/admin/login', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ password }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          loginError.innerHTML = `<p class="error">${data.error}</p>`;
+          loginError.hidden = false;
+          return;
+        }
+        if (data.mustChangePassword) {
+          authMethod = 'password';
+          document.getElementById('login-section').hidden = true;
+          document.getElementById('change-password-section').hidden = false;
+          return;
+        }
+        authMethod = 'password';
+        showAdminPanel();
+      } catch (err) {
+        loginError.innerHTML = `<p class="error">Fel: ${err.message}</p>`;
+        loginError.hidden = false;
+      }
+    });
+
+    // Change password form
+    document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const newPassword = document.getElementById('new-password').value;
+      const confirmPassword = document.getElementById('confirm-password').value;
+      const cpError = document.getElementById('change-password-error');
+      cpError.hidden = true;
+
+      if (newPassword !== confirmPassword) {
+        cpError.innerHTML = '<p class="error">L\u00f6senorden matchar inte.</p>';
+        cpError.hidden = false;
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/admin/change-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ newPassword }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          cpError.innerHTML = `<p class="error">${data.error}</p>`;
+          cpError.hidden = false;
+          return;
+        }
+        document.getElementById('change-password-section').hidden = true;
+        showAdminPanel();
+      } catch (err) {
+        cpError.innerHTML = `<p class="error">Fel: ${err.message}</p>`;
+        cpError.hidden = false;
+      }
+    });
+
+    applyBranding();
+    init();
+    setInterval(() => {
+      if (!document.getElementById('admin-panel').hidden) {
+        loadStreams();
+      }
+    }, 10000);
+  </script>
+</body>
+</html>

@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: jitsi-live-hls-cache
+  namespace: jitsi-overlord
+  labels:
+    app.kubernetes.io/name: jitsi-live-hls-cache
+    app.kubernetes.io/part-of: jitsi-live
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: jitsi-live-hls-cache
+  ports:
+  - name: http
+    port: 8080
+    targetPort: http
+    protocol: TCP

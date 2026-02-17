@@ -1,0 +1,100 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jitsi-live-app
+  namespace: jitsi-overlord
+  labels:
+    app.kubernetes.io/name: jitsi-live-app
+    app.kubernetes.io/component: stream-manager
+    app.kubernetes.io/part-of: jitsi-live
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jitsi-live-app
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jitsi-live-app
+        app.kubernetes.io/component: stream-manager
+        app.kubernetes.io/part-of: jitsi-live
+    spec:
+      serviceAccountName: jitsi-live-app
+      imagePullSecrets:
+      - name: livestream-registry
+      containers:
+      - name: app
+        image: image-registry.overlord.se/livestream/stream-app:latest
+        imagePullPolicy: Always
+        ports:
+        - name: http
+          containerPort: 3000
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: jitsi-live-site-config
+        env:
+        - name: DATABASE_HOST
+          value: live-postgresql-rw
+        - name: DATABASE_PORT
+          value: "5432"
+        - name: DATABASE_NAME
+          value: live
+        - name: DATABASE_USER
+          valueFrom:
+            secretKeyRef:
+              name: live-db-secret
+              key: username
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: live-db-secret
+              key: password
+        - name: MEDIAMTX_HLS_URL
+          value: http://jitsi-live-hls-cache:8080
+        - name: MEDIAMTX_API_URL
+          value: http://jitsi-live-mediamtx:9997
+        - name: MEDIAMTX_RTMP_HOST
+          value: jitsi-live-mediamtx
+        - name: JIBRI_DEPLOYMENT_PATTERN
+          value: jitsi-shard-{shard}-jibri
+        - name: JIBRI_NAMESPACE
+          value: jitsi-overlord
+        - name: SHARD_COUNT
+          value: "1"
+        - name: JIBRI_MAX_REPLICAS
+          value: "3"
+        - name: ADMIN_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              name: live-admin-secret
+              key: password
+        - name: NODE_EXTRA_CA_CERTS
+          value: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        readinessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          initialDelaySeconds: 15
+          periodSeconds: 30
+        startupProbe:
+          httpGet:
+            path: /api/health
+            port: http
+          failureThreshold: 10
+          periodSeconds: 3
+        resources:
+          requests:
+            cpu: 100m
+            memory: 128Mi
+          limits:
+            cpu: 500m
+            memory: 512Mi

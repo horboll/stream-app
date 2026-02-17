@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title></title>
+  <link rel="stylesheet" href="/style.css">
+  <script src="/branding.js"></script>
+</head>
+<body>
+  <div class="container">
+    <div class="site-header">
+      <img id="site-logo" src="/logo.svg" alt="" class="site-logo">
+      <h1 id="site-title"></h1>
+    </div>
+    <p id="site-tagline"></p>
+
+    <nav class="nav">
+      <a href="/order">Best&auml;ll stream</a>
+      <a href="/admin">Administration</a>
+      <a href="/my-streams">Mina streams</a>
+    </nav>
+
+    <div class="card">
+      <h2>Live just nu</h2>
+      <div id="live-streams">Laddar...</div>
+    </div>
+
+    <div class="card">
+      <h2>Startklara streams</h2>
+      <div id="ready-streams">Laddar...</div>
+    </div>
+
+    <div class="card">
+      <h2>Kommande streams</h2>
+      <div id="upcoming-streams">Laddar...</div>
+    </div>
+  </div>
+
+  <script>
+    const liveList = document.getElementById('live-streams');
+    const readyList = document.getElementById('ready-streams');
+    const upcomingList = document.getElementById('upcoming-streams');
+
+    function renderStreamCards(streams, container, emptyMsg) {
+      if (streams.length === 0) {
+        container.innerHTML = `<p class="info">${emptyMsg}</p>`;
+        return;
+      }
+      container.innerHTML = streams.map(s => `
+        <a href="/live/${s.name}" class="stream-card">
+          <span class="stream-card-name">${s.name}</span>
+          ${s.viewers > 0 ? `<span class="viewer-count">${s.viewers} tittare</span>` : ''}
+          <span class="status status-${s.status}">${s.status}</span>
+          <span class="stream-card-time">${
+            s.scheduled_start
+              ? new Date(s.scheduled_start).toLocaleString('sv-SE')
+              : new Date(s.created_at).toLocaleString('sv-SE')
+          }</span>
+        </a>
+      `).join('');
+    }
+
+    async function loadStreams() {
+      try {
+        const res = await fetch('/api/streams');
+        const data = await res.json();
+        const now = new Date();
+
+        const live = data.filter(s => s.status === 'live');
+
+        // Created streams whose window is already open (can start now)
+        const ready = data.filter(s => {
+          if (s.status !== 'created') return false;
+          const start = new Date(s.scheduled_start);
+          const windowOpen = new Date(start.getTime() - 60 * 60 * 1000);
+          return now >= windowOpen;
+        });
+
+        // Created streams whose window is not yet open (future)
+        const upcoming = data.filter(s => {
+          if (s.status !== 'created') return false;
+          const start = new Date(s.scheduled_start);
+          const windowOpen = new Date(start.getTime() - 60 * 60 * 1000);
+          return now < windowOpen;
+        });
+
+        renderStreamCards(live, liveList, 'Inga live-streams just nu.');
+        renderStreamCards(ready, readyList, 'Inga startklara streams.');
+        renderStreamCards(upcoming, upcomingList, 'Inga kommande streams.');
+      } catch (err) {
+        liveList.innerHTML = '<p class="error">Kunde inte ladda streams.</p>';
+        readyList.innerHTML = '';
+        upcomingList.innerHTML = '';
+      }
+    }
+
+    applyBranding();
+    loadStreams();
+    setInterval(loadStreams, 10000);
+  </script>
+</body>
+</html>

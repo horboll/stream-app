@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jitsi-live-mediamtx
+  namespace: jitsi-overlord
+  labels:
+    app.kubernetes.io/name: jitsi-live-mediamtx
+    app.kubernetes.io/component: streaming-server
+    app.kubernetes.io/part-of: jitsi-live
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jitsi-live-mediamtx
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: jitsi-live-mediamtx
+        app.kubernetes.io/component: streaming-server
+        app.kubernetes.io/part-of: jitsi-live
+    spec:
+      automountServiceAccountToken: false
+      containers:
+      - name: mediamtx
+        image: image-registry.overlord.se/mirror/mediamtx:1.12.2
+        imagePullPolicy: IfNotPresent
+        ports:
+        - name: rtmp
+          containerPort: 1935
+          protocol: TCP
+        - name: hls
+          containerPort: 8888
+          protocol: TCP
+        - name: api
+          containerPort: 9997
+          protocol: TCP
+        readinessProbe:
+          tcpSocket:
+            port: rtmp
+          initialDelaySeconds: 5
+          periodSeconds: 10
+        livenessProbe:
+          tcpSocket:
+            port: rtmp
+          initialDelaySeconds: 10
+          periodSeconds: 30
+        startupProbe:
+          tcpSocket:
+            port: rtmp
+          failureThreshold: 10
+          periodSeconds: 3
+        resources:
+          requests:
+            cpu: 250m
+            memory: 256Mi
+          limits:
+            cpu: 1000m
+            memory: 1Gi
+        volumeMounts:
+        - name: config
+          mountPath: /mediamtx.yml
+          subPath: mediamtx.yml
+      volumes:
+      - name: config
+        configMap:
+          name: jitsi-live-mediamtx-config
